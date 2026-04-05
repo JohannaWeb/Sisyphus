@@ -1,0 +1,262 @@
+data:
+  root_path: "/home/johanna/projects/Bastion/projects/Sisyphus"
+  root_label: "local-rust"
+  root_max_total_characters: 150000
+  extra_roots:
+    - path: "data/external/rust-web/book/src"
+      label: "rust-book"
+      max_total_characters: 800000
+    - path: "data/external/rust-web/book/listings"
+      label: "rust-book-listings"
+      max_total_characters: 2500000
+    - path: "data/external/rust-web/rust-by-example/src"
+      label: "rust-by-example"
+      max_total_characters: 400000
+    - path: "data/external/rust-web/reference/src"
+      label: "rust-reference"
+      max_total_characters: 700000
+    - path: "data/external/rust-web/edition-guide/src"
+      label: "rust-edition-guide"
+      max_total_characters: 150000
+    - path: "data/external/rust-web/rustc-dev-guide/src"
+      label: "rustc-dev-guide"
+      max_total_characters: 1200000
+    - path: "data/external/rust-code/rust/src"
+      label: "rust-src"
+      max_total_characters: 6000000
+    - path: "data/external/rust-code/rust/compiler"
+      label: "rust-compiler"
+      max_total_characters: 4000000
+    - path: "data/external/rust-code/rust/library"
+      label: "rust-library"
+      max_total_characters: 3000000
+    - path: "data/external/rust-code/rust/tests"
+      label: "rust-tests"
+      max_total_characters: 2500000
+    - path: "data/external/rust-code/cargo/src"
+      label: "cargo-src"
+      max_total_characters: 1500000
+    - path: "data/external/rust-code/cargo/crates"
+      label: "cargo-crates"
+      max_total_characters: 800000
+    - path: "data/external/rust-code/cargo/tests"
+      label: "cargo-tests"
+      max_total_characters: 1500000
+    - path: "data/external/rust-code/rust-analyzer/crates"
+      label: "rust-analyzer"
+      max_total_characters: 2500000
+    - path: "data/external/rust-code/tokio/tokio"
+      label: "tokio-main"
+      max_total_characters: 1200000
+    - path: "data/external/rust-code/tokio/tokio-util"
+      label: "tokio-util"
+      max_total_characters: 300000
+    - path: "data/external/rust-code/tokio/tokio-stream"
+      label: "tokio-stream"
+      max_total_characters: 150000
+    - path: "data/external/rust-code/tokio/tokio-test"
+      label: "tokio-test"
+      max_total_characters: 60000
+    - path: "data/external/rust-code/tokio/tokio-macros"
+      label: "tokio-macros"
+      max_total_characters: 60000
+    - path: "data/external/rust-code/tokio/examples"
+      label: "tokio-examples"
+      max_total_characters: 200000
+    - path: "data/external/rust-code/serde/serde"
+      label: "serde-src"
+      max_total_characters: 180000
+    - path: "data/external/rust-code/serde/serde_core"
+      label: "serde-core"
+      max_total_characters: 350000
+    - path: "data/external/rust-code/serde/serde_derive"
+      label: "serde-derive"
+      max_total_characters: 300000
+    - path: "data/external/rust-code/ripgrep/crates"
+      label: "ripgrep-src"
+      max_total_characters: 1000000
+    - path: "data/external/rust-code/ripgrep/tests"
+      label: "ripgrep-tests"
+      max_total_characters: 250000
+    - path: "data/external/rust-code/clap/clap_builder"
+      label: "clap-builder"
+      max_total_characters: 700000
+    - path: "data/external/rust-code/clap/clap_derive"
+      label: "clap-derive"
+      max_total_characters: 170000
+    - path: "data/external/rust-code/clap/clap_complete"
+      label: "clap-complete"
+      max_total_characters: 300000
+    - path: "data/external/rust-code/clap/examples"
+      label: "clap-examples"
+      max_total_characters: 120000
+    - path: "data/external/rust-code/axum/axum"
+      label: "axum-src"
+      max_total_characters: 600000
+    - path: "data/external/rust-code/axum/axum-core"
+      label: "axum-core"
+      max_total_characters: 100000
+    - path: "data/external/rust-code/axum/axum-extra"
+      label: "axum-extra"
+      max_total_characters: 200000
+    - path: "data/external/rust-code/axum/examples"
+      label: "axum-examples"
+      max_total_characters: 200000
+  output_dir: "data/processed"
+  corpus_file: "corpus.txt"
+  metadata_file: "corpus_metadata.json"
+  max_file_bytes: 262144
+  max_chars_per_file: 20000
+  min_chars: 40
+  deduplicate_exact: true
+  allowed_extensions:
+    - ".md"
+    - ".txt"
+    - ".rst"
+    - ".toml"
+    - ".rs"
+  excluded_dir_names:
+    - ".git"
+    - ".codex"
+    - ".idea"
+    - ".venv"
+    - "venv"
+    - "__pycache__"
+    - "node_modules"
+    - "target"
+    - "dist"
+    - "build"
+    - "vendor"
+    - ".next"
+    - ".cache"
+    - "logs"
+    - "models"
+    - "unsloth_compiled_cache"
+  excluded_paths:
+    - "data/processed"
+    - "data/external"
+    - "checkpoints"
+  excluded_file_suffixes:
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".gif"
+    - ".svg"
+    - ".pdf"
+    - ".zip"
+    - ".tar"
+    - ".gz"
+    - ".ttf"
+    - ".otf"
+    - ".woff"
+    - ".woff2"
+    - ".so"
+    - ".a"
+    - ".o"
+    - ".rlib"
+    - ".rmeta"
+    - ".dll"
+    - ".exe"
+    - ".bin"
+    - ".lock"
+
+web_corpus:
+  rust:
+    checkout_dir: "data/external/rust-web"
+    repositories:
+      - url: "https://github.com/rust-lang/book.git"
+        name: "book"
+        branch: "main"
+      - url: "https://github.com/rust-lang/rust-by-example.git"
+        name: "rust-by-example"
+        branch: "main"
+      - url: "https://github.com/rust-lang/reference.git"
+        name: "reference"
+        branch: "master"
+      - url: "https://github.com/rust-lang/edition-guide.git"
+        name: "edition-guide"
+        branch: "main"
+      - url: "https://github.com/rust-lang/rustc-dev-guide.git"
+        name: "rustc-dev-guide"
+        branch: "main"
+  rust_code:
+    checkout_dir: "data/external/rust-code"
+    repositories:
+      - url: "https://github.com/rust-lang/rust.git"
+        name: "rust"
+        branch: "master"
+      - url: "https://github.com/rust-lang/cargo.git"
+        name: "cargo"
+        branch: "master"
+      - url: "https://github.com/rust-lang/rust-analyzer.git"
+        name: "rust-analyzer"
+        branch: "master"
+      - url: "https://github.com/tokio-rs/tokio.git"
+        name: "tokio"
+        branch: "master"
+      - url: "https://github.com/serde-rs/serde.git"
+        name: "serde"
+        branch: "master"
+      - url: "https://github.com/BurntSushi/ripgrep.git"
+        name: "ripgrep"
+        branch: "master"
+      - url: "https://github.com/clap-rs/clap.git"
+        name: "clap"
+        branch: "master"
+      - url: "https://github.com/tokio-rs/axum.git"
+        name: "axum"
+        branch: "main"
+  fineweb_edu:
+    output_dir: "data/external/fineweb-edu/shards"
+    dataset: "HuggingFaceFW/fineweb-edu"
+    split: "train"
+    streaming: true
+    max_documents: 2500
+    max_total_characters: 6000000
+    min_document_characters: 200
+    max_document_characters: 4000
+    shard_max_characters: 150000
+
+model:
+  vocab_size: 256
+  block_size: 256
+  n_layer: 6
+  n_head: 6
+  n_embd: 384
+  dropout: 0.1
+
+training:
+  seed: 1337
+  device: "auto"
+  checkpoint_dir: "checkpoints"
+  checkpoint_name: "sisyphus.pt"
+  batch_size: 8
+  eval_batch_size: 4
+  gradient_accumulation_steps: 1
+  max_batch_tokens: 4096
+  max_eval_batch_tokens: 2048
+  learning_rate: 0.0003
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  max_steps: 3000
+  warmup_steps: 100
+  eval_interval: 200
+  eval_batches: 20
+  save_interval: 500
+  grad_clip: 1.0
+  train_split: 0.9
+  max_ram_utilization: 0.7
+  max_vram_utilization: 0.8
+  min_free_vram_bytes: 1073741824
+  max_reserved_vram_bytes: 6442450944
+  # Monarch-inspired optimizations
+  gradient_quantization: true
+  activation_compression: true
+  selective_backprop: true
+  sticky_params: true
+  gradient_paging: true
+
+generation:
+  max_new_tokens: 200
+  temperature: 0.9
+  top_k: 50

@@ -1,0 +1,8 @@
+.codex
+.idea/
+.venv/
+__pycache__/
+
+checkpoints/
+data/external/
+data/processed/
