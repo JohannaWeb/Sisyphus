@@ -1,77 +1,126 @@
 # Sisyphus
 
-`Sisyphus` is a local from-scratch language model project.
+Sisyphus is a small Rust-focused language model project trained from scratch.
 
-It builds a Rust-focused corpus from this repo, official Rust documentation repositories, and an optional bounded set of Rust code repositories, tokenizes at the byte level, and trains a small causal Transformer from random initialization with PyTorch.
+It builds a corpus out of local project text, official Rust docs, a bounded set of Rust code repositories, and optionally FineWeb-Edu. It then trains a byte-level decoder model in PyTorch and writes checkpoints for generation and evaluation.
 
-This is not LoRA, not adapter tuning, and not base-model fine-tuning.
+This repo is for training experiments, not product polish. Some files reflect older runs or older ideas, so the code in `src/` and the concrete config/log files are the things to trust first.
 
-## What It Does
+## What the project is trying to do
 
-- walks this repo for local Rust-adjacent text
-- can ingest official Rust docs cloned from the web
-- can ingest a bounded set of Rust code repositories cloned from the web
-- can optionally ingest a bounded streamed slice of `HuggingFaceFW/fineweb-edu`
-- keeps source and documentation text
-- skips generated, vendor, cache, git, and binary files
-- deduplicates exact normalized file content and caps oversized files
-- writes a single corpus file plus metadata
-- trains a byte-level GPT-style model from scratch
-- saves checkpoints you can use for local text generation
+The basic goal is simple:
 
-## Techniques
+- keep the stack small enough to run on ordinary hardware
+- stay close to the data and training code instead of hiding everything behind tooling
+- see how far a small Rust-specific model can go with a better corpus and a more locality-biased attention block
 
-- Byte-level language modeling with a fixed `256`-token vocabulary, so no separate tokenizer training step is needed.
-- GPT-style causal Transformer training from random initialization with next-token prediction.
-- Random fixed-length training windows sampled from the corpus rather than document-by-document epoch training.
-- AdamW optimization with warmup plus cosine learning-rate decay.
-- Automatic mixed precision on `cuda` and `mps` when available.
-- Periodic train/validation loss estimation during training, with best-checkpoint and last-checkpoint saves.
-- Corpus assembly from multiple sources: local Rust project text, official Rust web docs, curated Rust code repositories, and optional bounded streamed `fineweb-edu`.
-- Exact-content deduplication after normalization to reduce repeated files across the project tree.
-- Per-file truncation caps to improve corpus quality without increasing VRAM requirements.
-- File-type and directory filtering to skip binary, generated, vendor, cache, and git content.
-- Per-source character caps to keep docs, code, and local text in a controlled mix.
+This is not LoRA, not instruction tuning, and not base-model finetuning. The model is trained from random initialization.
 
-Experimental techniques implemented in code and enabled by default in config:
+## Current shape
 
-- Gradient quantization
-- Activation compression
-- Selective backprop
-- Sticky parameters
-- Gradient paging
-- KV-cache and fractal-attention hooks in the model code
+The main pieces are:
 
-These are advanced memory optimizations. Disable them by setting the flags to `false` in `config.yaml` if you experience issues.
+- `src/build_corpus.py`: walks source roots, filters files, deduplicates normalized content, writes `data/processed/corpus.txt` plus metadata
+- `src/fetch_rust_web_corpus.py`: clones Rust docs repos
+- `src/fetch_rust_code_corpus.py`: clones the configured Rust code repos
+- `src/fetch_top_crates.py`: fetches and clones top crates from crates.io
+- `src/fetch_fineweb_edu.py`: optional bounded FineWeb-Edu ingest
+- `src/model.py`: byte-level model definition
+- `src/train.py`: training loop, checkpointing, preflight memory checks, resume support
+- `src/generate.py`: text generation from a checkpoint
+- `src/eval.py`: held-out perplexity evaluation
 
-## Quick Start
+## Model
 
-Build the corpus:
+The current model is not just a stock causal transformer.
+
+`src/model.py` defines a byte-level decoder with:
+
+- vocab size `256`
+- learned positional embeddings
+- tied token embedding / LM head weights
+- residual blocks with MLPs
+- `HybridAttention` in each block
+
+`HybridAttention` mixes two paths:
+
+- local causal window attention
+- a GRU-like recurrent state path
+
+The local path is there because most code dependencies are nearby. The recurrent path is there to carry some compressed longer-range state without paying for full dense attention everywhere.
+
+There is also older cache/paging-oriented code in the repo. Some of that is experimental or leftover from previous directions. If you want to know what the current training path really is, read `ByteGPT`, `Block`, and `HybridAttention` first.
+
+## Corpus building
+
+The corpus builder is deliberately simple.
+
+It walks configured roots, keeps only allowed extensions, skips binary/generated/vendor/cache trees, caps file size, optionally truncates very large text files, normalizes content for exact deduplication, and writes everything into one byte-level training file with lightweight `<FILE ...>` wrappers.
+
+By default the allowed extensions are:
+
+- `.md`
+- `.txt`
+- `.rst`
+- `.toml`
+- `.rs`
+
+The main quality levers are:
+
+- per-source `max_total_characters`
+- `max_chars_per_file`
+- `min_chars`
+- `deduplicate_exact`
+- which roots you choose to include at all
+
+The project has several config files because the corpus and training setup have changed over time. `config.yaml` is the broad current config. `config.20m.yaml` and `config.20m.optimized.yaml` document specific 20M-class runs.
+
+## A concrete run
+
+The most interesting logged run in this repo is the one in `config.20m.optimized.yaml` and `logs/train.20m.optimized.log`.
+
+That run used:
+
+- 25,613,312 parameters
+- block size `512`
+- batch size `12`
+- learning rate `2e-4`
+- 30,000 steps
+- mixed precision on CUDA
+
+The final log line for that run was:
+
+- train loss `0.5834`
+- val loss `0.8217`
+
+Best validation loss in the log appears earlier, at step `18500`, with val loss `0.7757`.
+
+The expanded corpus run also records:
+
+- corpus bytes: `177151242`
+- train bytes: `159436117`
+- val bytes: `17715125`
+
+The top-crates expansion path increased the corpus substantially and seems to have helped more than small architecture polish did.
+
+## Training
+
+Typical workflow:
 
 ```bash
 python3 src/fetch_rust_web_corpus.py --config config.yaml
 python3 src/fetch_rust_code_corpus.py --config config.yaml
+python3 src/fetch_top_crates.py --count 500
 # optional:
 # python3 src/fetch_fineweb_edu.py --config config.yaml
 python3 src/build_corpus.py --config config.yaml
-```
-
-Train from scratch:
-
-```bash
 python3 src/train.py --config config.yaml
 ```
 
-Resume training from a checkpoint:
+Resume from the last checkpoint:
 
 ```bash
 python3 src/train.py --config config.yaml --resume checkpoints/sisyphus.last.pt
-```
-
-Generate text from a checkpoint:
-
-```bash
-python3 src/generate.py --checkpoint checkpoints/sisyphus.pt --prompt "fn main"
 ```
 
 Or use the wrapper:
@@ -80,51 +129,74 @@ Or use the wrapper:
 bash train_from_scratch.sh
 ```
 
-## Hardware Requirements
+`train_from_scratch.sh` skips FineWeb-Edu. If you want FineWeb in the corpus, run the fetcher before rebuilding the corpus.
 
-- **Minimum RAM**: 8 GB system RAM
-- **GPU (recommended)**: NVIDIA CUDA-capable GPU with at least 4 GB VRAM, or Apple Silicon Mac with MPS support
-- **CPU fallback**: Training is very slow (~1 hour per 100 steps) without a GPU; not recommended for full 3000-step training
+## Generation
 
-## Checkpoint Selection
+Generate from a checkpoint:
 
-Two checkpoint files are saved during training:
+```bash
+python3 src/generate.py \
+  --checkpoint checkpoints/sisyphus.pt \
+  --prompt "fn main"
+```
 
-- **`sisyphus.pt`** — Best checkpoint (lowest validation loss). Use this for generation and evaluation.
-- **`sisyphus.last.pt`** — Most recent checkpoint. Use this to resume training if interrupted.
+Generation is byte-level, so there is no tokenizer training step in this project. The prompt is UTF-8 encoded directly to byte IDs.
 
-The best checkpoint path and metrics are logged to `sisyphus.metrics.json`.
+## Evaluation
 
-## Training Notes
+Held-out perplexity:
 
-- Default training runs for 3000 steps with a batch size of 8
-- Each training step processes `batch_size * block_size = 8 * 256 = 2048` tokens
-- Evaluation runs every 200 steps
-- Training resumes correctly from a checkpoint with `--resume`, restoring optimizer state and the best loss seen so far
+```bash
+python3 src/eval.py \
+  --checkpoint checkpoints/sisyphus.pt \
+  --config config.yaml \
+  --split val
+```
 
-## Notes
+Perplexity is useful for tracking training, but it is not enough on its own for code quality. For this repo, syntax validity and repetition behavior are still obvious missing evals.
 
-- The model uses raw bytes as tokens, so it does not need a separate tokenizer-training step.
-- The Rust documentation corpus is limited to official sources: `rust-lang/book`, `rust-lang/rust-by-example`, `rust-lang/reference`, `rust-lang/edition-guide`, and `rust-lang/rustc-dev-guide`.
-- The Rust code corpus is a bounded curated set of repositories configured under `web_corpus.rust_code` in `config.yaml`.
-- `fineweb-edu` is streamed from `HuggingFaceFW/fineweb-edu` and capped by character and document limits before it is added to the local corpus, so dataset quality can improve without changing VRAM requirements.
-- The default model is intentionally small enough to be realistic on a local machine.
-- Training from scratch on this corpus will produce a niche local model, not a general-purpose assistant.
-- Better results usually require more training time, larger context, and careful exclusion rules for noisy files.
-- The corpus builder now supports per-source character caps, so you can bias the final mix toward Rust code or documentation without changing the trainer.
-- `max_chars_per_file`, `deduplicate_exact`, and the per-source `max_total_characters` caps are the main knobs for improving corpus quality without increasing GPU memory pressure.
+## Hardware notes
+
+You do not need a huge machine, but you do need to be realistic.
+
+- CUDA is the intended path
+- CPU training works in theory and is a bad use of time in practice
+- the 4060 Ti runs are viable because the model is small and the trainer has guardrails around batch size, block size, and memory
+
+The training script does a memory preflight and has config guardrails like:
+
+- `max_batch_tokens`
+- `max_eval_batch_tokens`
+- `max_ram_utilization`
+- `max_vram_utilization`
+- `min_free_vram_bytes`
+
+The point is not to be clever. The point is to fail early instead of dying 20 minutes into a run.
 
 ## FineWeb-Edu
 
-Use the bounded fetcher before rebuilding the corpus:
+FineWeb-Edu is optional and bounded on purpose.
+
+Fetch it like this:
 
 ```bash
 python3 src/fetch_fineweb_edu.py --config config.yaml
 python3 src/build_corpus.py --config config.yaml
 ```
 
-Tune these config keys to control how much crawl data you add without changing the model or batch size:
+Important details:
 
-- `web_corpus.fineweb_edu.max_total_characters`
-- `web_corpus.fineweb_edu.max_documents`
-- `web_corpus.fineweb_edu.max_document_characters`
+- the configured dataset is `HuggingFaceFW/fineweb-edu`
+- the valid split here is `train`
+- first-time fetch requires outbound access to Hugging Face
+- if network/DNS is broken, this step can hang and then fail during dataset resolution
+
+If that happens, skip FineWeb and rebuild the corpus from the local and Rust-source inputs.
+
+## Notes
+
+- This repo is intentionally opinionated and a bit rough around the edges.
+- Some comments and docs describe experiments that were later disabled, replaced, or only partially kept.
+- If a doc and the code disagree, trust the code and the logs.
+- If you want to understand the current training path, start with `src/model.py`, `src/train.py`, `config.20m.optimized.yaml`, and `logs/train.20m.optimized.log`.

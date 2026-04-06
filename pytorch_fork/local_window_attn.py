@@ -26,6 +26,20 @@ def local_window_attention(
         out: (B, H, T, D) attention output
         lse: (B, H, T) log-sum-exp for backward stability
     """
+    # BUG FIX #7: Input validation
+    if not (q.is_cuda and k.is_cuda and v.is_cuda):
+        raise RuntimeError("local_window_attention requires CUDA tensors")
+
+    if q.shape != k.shape or q.shape != v.shape:
+        raise ValueError(
+            f"q, k, v must have same shape. Got q={q.shape}, k={k.shape}, v={v.shape}"
+        )
+
+    if q.dtype not in (torch.float32, torch.float16, torch.bfloat16):
+        raise ValueError(
+            f"local_window_attention requires float32/float16/bfloat16, got {q.dtype}"
+        )
+
     B, H, T, D = q.shape
     W = window_size
 

@@ -27,7 +27,7 @@ Successfully expanded Sisyphus training corpus from **31M tokens → 173M tokens
 - `hashbrown`, `indexmap` - hash/collections
 - `tokio` (596M) - async runtime
 - `serde` (908M) - serialization
-- `regex` (755M) - pattern matching
+- `regex` (755Mmake ) - pattern matching
 - `clap` (749M) - CLI parsing
 
 ---

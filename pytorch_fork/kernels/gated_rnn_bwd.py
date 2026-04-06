@@ -7,7 +7,7 @@ import torch
 
 @triton.jit
 def gated_rnn_bwd_kernel(
-    K_ptr, V_ptr, H_out_ptr, dH_out_ptr,
+    K_ptr, V_ptr, H_init_ptr, H_out_ptr, dH_out_ptr,
     dK_ptr, dV_ptr, dH_init_ptr,
     stride_k_b, stride_k_h, stride_k_t, stride_k_d,
     stride_v_b, stride_v_h, stride_v_t, stride_v_d,
@@ -57,13 +57,24 @@ def gated_rnn_bwd_kernel(
         )
         h_t = tl.load(h_t_ptrs, mask=tl.arange(0, BLOCK_D) < D, other=0.0)
 
-        h_prev_ptrs = (
-            H_out_ptr
-            + pid_b * stride_h_b
-            + pid_h * stride_h_h
-            + tl.maximum(0, t - 1) * stride_dh_t
-            + tl.arange(0, BLOCK_D) * stride_dh_d
-        )
+        # BUG FIX #5: At t=0, use h_init instead of H_out[0]
+        if t == 0:
+            # Load h_init at t=0
+            h_prev_ptrs = (
+                H_init_ptr
+                + pid_b * stride_h_b
+                + pid_h * stride_h_h
+                + tl.arange(0, BLOCK_D) * stride_h_d
+            )
+        else:
+            # Load h_prev from H_out at t-1
+            h_prev_ptrs = (
+                H_out_ptr
+                + pid_b * stride_h_b
+                + pid_h * stride_h_h
+                + (t - 1) * stride_dh_t
+                + tl.arange(0, BLOCK_D) * stride_dh_d
+            )
         h_prev = tl.load(h_prev_ptrs, mask=tl.arange(0, BLOCK_D) < D, other=0.0)
 
         # Load k_t, v_t
@@ -123,17 +134,25 @@ def gated_rnn_bwd_kernel(
 
         # Backward through n = tanh(r*h_prev + k_t)
         dn_pre = dn * (1.0 - n_t * n_t)
+
+        # BUG FIX #4: Include direct gradient through n_t w.r.t. r_t and h_prev
+        # n_t = tanh(r_t * h_prev + k_t)
+        # dn_pre flows back through this, contributing:
+        #   - dn_pre * h_prev to dr_t
+        #   - dn_pre * r_t to dh_prev (MISSING before)
+        #   - dn_pre to dk_t
         dr_h = dn_pre * h_prev
+        dn_h = dn_pre * r_t  # DIRECT contribution from n_t to h_prev
         dk_n = dn_pre
 
         # Backward through r = sigmoid(h_prev + k_t)
-        dr = dr_h * h_prev
-        dr_pre = dr * r_t * (1.0 - r_t)
+        dr_pre = dr_h * r_t * (1.0 - r_t)
         dh_prev_r = dr_pre
         dk_r = dr_pre
 
         # Total gradient w.r.t. h_prev (will propagate back)
-        dh_prev_total = dh_total * (1.0 - z_t) + dh_prev_z + dh_prev_r
+        # Now includes: (1-z)*dh + z*dz_term + dh_prev_z + dh_prev_r + dn_h
+        dh_prev_total = dh_total * (1.0 - z_t) + dh_prev_z + dh_prev_r + dn_h
         dk_total = dk_z + dk_n + dk_r
 
         # Store dK, dV

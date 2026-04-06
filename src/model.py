@@ -10,6 +10,13 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+# Register custom ops
+try:
+    import pytorch_fork  # noqa: F401
+    HAS_TRITON_OPS = True
+except ImportError:
+    HAS_TRITON_OPS = False
+
 
 @dataclass
 class GPTConfig:
@@ -119,6 +126,176 @@ class KVCache:
 # Removed: FractalAttention (dead code, never called in forward pass)
 
 
+class HybridAttention(nn.Module):
+    """Local window attention + GRU state for efficient context modeling.
+
+    Combines O(n·W) local windowed attention with O(n·D) GRU-based
+    recurrent state for handling long-range dependencies.
+    """
+
+    def __init__(self, config: GPTConfig) -> None:
+        super().__init__()
+        assert config.n_embd % config.n_head == 0
+        self.config = config
+        self.n_head = config.n_head
+        self.head_dim = config.n_embd // config.n_head
+        self.window_size = config.window_size  # 128
+
+        # QKV projection (same as CausalSelfAttention)
+        self.qkv = nn.Linear(config.n_embd, 3 * config.n_embd)
+        self.proj = nn.Linear(config.n_embd, config.n_embd)
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.resid_dropout = nn.Dropout(config.dropout)
+
+        # GRU parameters (per-head, shape (head_dim, head_dim))
+        D = self.head_dim
+        self.rnn_Wr = nn.Linear(D, D, bias=False)  # reset gate on h
+        self.rnn_Ur = nn.Linear(D, D, bias=False)  # reset gate on k
+        self.rnn_Wz = nn.Linear(D, D, bias=False)  # update gate on h
+        self.rnn_Wn = nn.Linear(D, D, bias=False)  # candidate on h
+        self.rnn_Un = nn.Linear(D, D, bias=False)  # candidate on k
+
+        # Blending gate: per-head sigmoid
+        self.gate_proj = nn.Linear(config.n_embd, config.n_head, bias=True)
+        nn.init.ones_(self.gate_proj.bias)  # initialize to 1 → sigmoid(1) ≈ 0.73
+
+        # Inference state (replaces KVCache)
+        self.rnn_state: Optional[torch.Tensor] = None  # (B, H, D)
+        self.local_kv_buf_k: Optional[torch.Tensor] = None  # (B, H, W, D) rolling buffer
+        self.local_kv_buf_v: Optional[torch.Tensor] = None
+        self.local_buf_pos: int = 0  # position within rolling buffer
+
+    def _gated_rnn_step(
+        self,
+        k: torch.Tensor,  # (B, H, D)
+        v: torch.Tensor,  # (B, H, D)
+        h_prev: torch.Tensor,  # (B, H, D)
+    ) -> torch.Tensor:  # (B, H, D) — new state
+        """Single GRU step: h_t = GRU(h_{t-1}, k_t, v_t)."""
+        # Reset gate: r_t = sigmoid(Wr @ h_prev + Ur @ k_t)
+        r_t = torch.sigmoid(self.rnn_Wr(h_prev) + self.rnn_Ur(k))  # (B, H, D)
+
+        # Update gate: z_t = sigmoid(Wz @ h_prev + k_t)
+        z_t = torch.sigmoid(self.rnn_Wz(h_prev) + k)  # (B, H, D)
+
+        # Candidate: n_t = tanh(Wn @ (r_t * h_prev) + Un @ k_t)
+        n_t = torch.tanh(self.rnn_Wn(r_t * h_prev) + self.rnn_Un(k))  # (B, H, D)
+
+        # New state: h_t = (1-z_t)*h_prev + z_t*(n_t * v_t)
+        h_new = (1.0 - z_t) * h_prev + z_t * (n_t * v)  # (B, H, D)
+
+        return h_new
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        use_cache: bool = False,
+    ) -> torch.Tensor:
+        B, T, C = x.shape
+
+        # QKV projection
+        q, k, v = self.qkv(x).chunk(3, dim=2)  # each (B, T, C)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)  # (B, H, T, D)
+        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+
+        # --- Local window attention path (O(n·W)) ---
+        if T == 1 and use_cache and self.local_kv_buf_k is not None:
+            # Autoregressive single-token decode: use rolling buffer
+            local_k = self.local_kv_buf_k  # (B, H, W, D)
+            local_v = self.local_kv_buf_v  # (B, H, W, D)
+            local_out = F.scaled_dot_product_attention(
+                q, local_k, local_v,
+                dropout_p=self.attn_dropout.p if self.training else 0.0,
+                is_causal=False,
+            )  # (B, H, 1, D)
+
+            # Update rolling buffer
+            self.local_kv_buf_k[:, :, self.local_buf_pos % self.window_size] = k[:, :, 0]
+            self.local_kv_buf_v[:, :, self.local_buf_pos % self.window_size] = v[:, :, 0]
+            self.local_buf_pos += 1
+        else:
+            # Training or initial forward: use Triton kernel if available, else Python fallback
+            if HAS_TRITON_OPS and T > 1:
+                # Triton kernel (faster, but only for full sequences T > 1)
+                local_out, lse = torch.ops.sisyphus.local_window_attention(q, k, v, self.window_size)
+            else:
+                # Python fallback: apply window mask to full sequence
+                # Mask: query at position i can attend to key at j iff j in [i-W+1, i]
+                scale = self.head_dim ** -0.5
+                scores = torch.matmul(q, k.transpose(-1, -2)) * scale  # (B, H, T, T)
+
+                # Build causal + window mask
+                causal_mask = torch.arange(T, device=x.device).unsqueeze(0) >= torch.arange(T, device=x.device).unsqueeze(1)
+                window_mask = (torch.arange(T, device=x.device).unsqueeze(0) - torch.arange(T, device=x.device).unsqueeze(1)) < self.window_size
+                combined_mask = causal_mask & window_mask  # (T, T)
+
+                # Apply window + causal mask
+                scores_masked = scores.clone()
+                scores_masked[:, :, ~combined_mask] = float('-inf')
+
+                # Softmax and apply dropout
+                attn_weights = F.softmax(scores_masked, dim=-1)
+                attn_weights = attn_weights.nan_to_num(0.0)
+                attn_weights = self.attn_dropout(attn_weights) if self.training else attn_weights
+
+                # Attention output
+                local_out = torch.matmul(attn_weights, v)  # (B, H, T, D)
+
+            # Store initial KV buffer for inference
+            if use_cache and self.local_kv_buf_k is None:
+                self.local_kv_buf_k = torch.zeros(B, self.n_head, self.window_size, self.head_dim,
+                                                  device=x.device, dtype=x.dtype)
+                self.local_kv_buf_v = torch.zeros(B, self.n_head, self.window_size, self.head_dim,
+                                                  device=x.device, dtype=x.dtype)
+                self.local_buf_pos = 0
+                # Prefill buffer with current k, v (up to window_size)
+                fill_size = min(T, self.window_size)
+                self.local_kv_buf_k[:, :, :fill_size] = k[:, :, -fill_size:]
+                self.local_kv_buf_v[:, :, :fill_size] = v[:, :, -fill_size:]
+                self.local_buf_pos = fill_size
+
+        # --- GRU state path (O(n·D)) ---
+        # Initialize or retrieve RNN state
+        if use_cache and self.rnn_state is not None:
+            h_prev = self.rnn_state  # (B, H, D)
+        else:
+            h_prev = torch.zeros(B, self.n_head, self.head_dim, device=x.device, dtype=x.dtype)
+
+        # Process each token through GRU
+        rnn_outputs = []
+        for t in range(T):
+            k_t = k[:, :, t]  # (B, H, D)
+            v_t = v[:, :, t]  # (B, H, D)
+            h_t = self._gated_rnn_step(k_t, v_t, h_prev)  # (B, H, D)
+            rnn_outputs.append(h_t.unsqueeze(2))  # (B, H, 1, D)
+            h_prev = h_t
+
+        rnn_out = torch.cat(rnn_outputs, dim=2)  # (B, H, T, D)
+
+        # Save state for next call in use_cache mode
+        if use_cache:
+            self.rnn_state = h_prev.detach()  # (B, H, D)
+
+        # --- Blending gate ---
+        alpha = torch.sigmoid(self.gate_proj(x))  # (B, T, n_head)
+        alpha = alpha.permute(0, 2, 1).unsqueeze(-1)  # (B, H, T, 1)
+
+        # Blend local and RNN outputs
+        y = alpha * local_out + (1.0 - alpha) * rnn_out  # (B, H, T, D)
+
+        # Output projection
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # (B, T, C)
+        return self.resid_dropout(self.proj(y))
+
+    def clear_state(self) -> None:
+        """Clear inference state (call at start of generate())."""
+        self.rnn_state = None
+        self.local_kv_buf_k = None
+        self.local_kv_buf_v = None
+        self.local_buf_pos = 0
+
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config: GPTConfig) -> None:
         super().__init__()
@@ -187,7 +364,7 @@ class Block(nn.Module):
     def __init__(self, config: GPTConfig) -> None:
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
-        self.attn = CausalSelfAttention(config)
+        self.attn = HybridAttention(config)  # Hybrid local + RNN attention
         self.ln_2 = nn.LayerNorm(config.n_embd)
         self.mlp = MLP(config)
 
@@ -227,15 +404,10 @@ class ByteGPT(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         batch, steps = idx.shape
         
-        if use_cache:
-            # When using cache, we assume sequential calls.
-            # total_tokens in cache is the count AFTER append.
-            # CausalSelfAttention.forward appends BEFORE calling promote,
-            # but ByteGPT.forward is called BEFORE CausalSelfAttention.
-            # So kv_cache.total_tokens is the count of tokens ALREADY in cache.
-            # The current tokens will be appended later.
-            start_pos = self.blocks[0].attn.kv_cache.total_tokens if self.blocks[0].attn.kv_cache else 0
-            positions = (self._position_ids[start_pos:start_pos + steps]).clamp(0, self.config.block_size - 1)
+        if use_cache and hasattr(self.blocks[0].attn, 'local_buf_pos'):
+            # HybridAttention: position tracking via local_buf_pos (rolling window position)
+            # For longer sequences, just use the sequence length
+            positions = self._position_ids[:steps]
         else:
             if steps > self.config.block_size:
                 raise ValueError("sequence length exceeds block size")
@@ -266,22 +438,14 @@ class ByteGPT(nn.Module):
         top_k: int | None = None,
         use_cache: bool = True,
     ) -> torch.Tensor:
-        # Initialize cache if requested
+        # Clear HybridAttention state (RNN + local KV buffer) if requested
         if use_cache:
             for block in self.blocks:
-                if block.attn.kv_cache:
-                    block.attn.kv_cache.clear()
-                else:
-                    block.attn.kv_cache = KVCache(
-                        self.config.block_size,
-                        block.attn.n_head,
-                        block.attn.head_dim,
-                        idx.device.type,
-                        hot_window=512
-                    )
-            
-            # Fill cache with the entire prompt
-            # We do this in one pass to be efficient
+                if hasattr(block.attn, 'clear_state'):
+                    block.attn.clear_state()
+
+            # Prefill: process entire prompt in one forward pass
+            # This populates rnn_state in each HybridAttention layer
             self(idx, use_cache=True)
 
         for _ in range(max_new_tokens):

@@ -36,7 +36,39 @@ def gated_rnn_update(
         h_out: (B, H, T, D) all hidden states
         h_final: (B, H, D) final hidden state at t=T-1
     """
+    # BUG FIX #7: Input validation
+    if not (k.is_cuda and v.is_cuda and h_init.is_cuda):
+        raise RuntimeError("gated_rnn_update requires CUDA tensors")
+
+    if k.dtype != v.dtype or k.dtype != h_init.dtype:
+        raise ValueError(
+            f"k, v, h_init must have same dtype. Got k={k.dtype}, v={v.dtype}, h_init={h_init.dtype}"
+        )
+
+    if k.dtype not in (torch.float32, torch.float16, torch.bfloat16):
+        raise ValueError(
+            f"gated_rnn_update requires float32/float16/bfloat16, got {k.dtype}"
+        )
+
+    if k.shape != v.shape:
+        raise ValueError(
+            f"k and v must have same shape. Got k={k.shape}, v={v.shape}"
+        )
+
+    if h_init.shape != (k.shape[0], k.shape[1], k.shape[3]):
+        raise ValueError(
+            f"h_init must have shape (B, H, D). Got h_init={h_init.shape}, expected {(k.shape[0], k.shape[1], k.shape[3])}"
+        )
+
     B, H, T, D = k.shape
+
+    # BUG FIX #6: Reject D > 64 instead of silently truncating
+    if D > 64:
+        raise ValueError(
+            f"gated_rnn_update requires D <= 64, got D={D}. "
+            "This is a Triton kernel limitation. "
+            "Consider using a smaller hidden dimension or projecting to 64."
+        )
 
     # Allocate output
     h_out = torch.empty(B, H, T, D, dtype=k.dtype, device=k.device)
@@ -102,7 +134,7 @@ def _gru_backward(ctx, grad_h_out, grad_h_final):
 
     # Launch backward kernel
     gated_rnn_bwd_kernel[grid](
-        k, v, h_out, grad_h_total,
+        k, v, h_init, h_out, grad_h_total,
         dk, dv, dh_init,
         stride_k_b, stride_k_h, stride_k_t, stride_k_d,
         stride_v_b, stride_v_h, stride_v_t, stride_v_d,
