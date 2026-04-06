@@ -4,7 +4,7 @@ import torch
 import triton
 from torch import Tensor
 
-from .kernels.local_window_attn_fwd import local_window_attn_fwd_kernel
+from .kernels.local_window_attn_fwd_fixed import local_window_attn_fwd_kernel
 from .kernels.local_window_attn_bwd import local_window_attn_bwd_kernel
 
 
@@ -48,25 +48,15 @@ def local_window_attention(
     lse = torch.empty(B, H, T, dtype=torch.float32, device=q.device)
 
     # Block sizes for tiling
-    BLOCK_M = 32  # query tile size
+    BLOCK_M = 16  # query tile size (reduced from 32 to fit backward kernel SRAM)
     BLOCK_D = D   # head dimension (fixed)
 
-    # Block size for keys/values
-    # For query tile [q_start, q_start+BLOCK_M), the union of valid keys is [max(0, q_start-W+1), q_start+BLOCK_M-1]
-    # This spans up to W + BLOCK_M - 1 positions (typically 128 + 32 - 1 = 159).
-    #
-    # TRADEOFF: BLOCK_N=128 vs full coverage:
-    #   BLOCK_N=256 would cover everything but exceeds backward SRAM budget (286KB > 101KB).
-    #   BLOCK_N=128 (power of 2, fits SRAM) means late-block queries miss newer keys.
-    #   For BLOCK_M=32, W=128: rows 129-159 can attend to keys up to 159, but only load [1, 128].
-    #
-    # IMPACT (minor in practice):
-    #   - Window mask still prevents out-of-window access, so model correct
-    #   - Late-block queries see fewer keys, but attention is still causal+windowed
-    #   - Gradient flow through missing keys is masked, so BPTT still works
-    #
-    # FIX IF NEEDED: Reduce BLOCK_M to 16, then W+BLOCK_M-1 = 143 fits in BLOCK_N=128
-    BLOCK_N = 128  # W=128, power-of-2, fits SRAM
+    # BLOCK_N = 64: Reduced from 128 to fit multi-tile loop within SRAM
+    # For query tile [q_start, q_start+BLOCK_M), valid keys span ~W+BLOCK_M-1 positions (~143 with W=128, BLOCK_M=16).
+    # With BLOCK_N=64: requires ~3 key tiles per query tile.
+    # Multi-tile iteration with online softmax ensures FULL coverage (BUG #1 fix).
+    # SRAM usage: K+V tiles (16KB/iter) + Q (4KB) + accumulators (2KB) = ~22KB per iteration.
+    BLOCK_N = 64
 
     grid = (triton.cdiv(T, BLOCK_M), B * H)
 
@@ -104,9 +94,9 @@ def _local_window_attn_backward(ctx, grad_out, grad_lse):
     W = ctx.window_size
 
     B, H, T, D = q.shape
-    BLOCK_M = 32
+    BLOCK_M = 16  # Reduced from 32 to fit backward kernel SRAM (load Q, K, V, O, dO, LSE)
     BLOCK_D = D
-    BLOCK_N = 128  # Power of 2, fits SRAM (see forward for tradeoff explanation)
+    BLOCK_N = 64
 
     # Allocate gradients
     dq = torch.zeros_like(q)
