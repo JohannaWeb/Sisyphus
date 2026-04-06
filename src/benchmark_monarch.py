@@ -7,6 +7,7 @@ import argparse
 import time
 import torch
 import math
+import yaml
 from pathlib import Path
 from model import ByteGPT, GPTConfig
 
@@ -85,8 +86,15 @@ def compute_perplexity(model, data, block_size, use_cache):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--config", default="config.yaml", help="Path to YAML config")
     parser.add_argument("--max-new-tokens", type=int, default=100)
     args = parser.parse_args()
+
+    config_path = Path(args.config).resolve()
+    with config_path.open("r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    data_cfg = config["data"]
+    project_root = Path(__file__).resolve().parents[1]
 
     device = resolve_device()
     checkpoint = torch.load(args.checkpoint, map_location="cpu")
@@ -107,7 +115,13 @@ def main():
 
     # 2. Perplexity (Simulated)
     # Load some data for perplexity
-    corpus_path = Path("data/processed/corpus.txt")
+    output_dir_setting = Path(data_cfg["output_dir"])
+    output_dir = (
+        output_dir_setting
+        if output_dir_setting.is_absolute()
+        else project_root / output_dir_setting
+    )
+    corpus_path = output_dir / data_cfg["corpus_file"]
     if corpus_path.exists():
         data = torch.tensor(list(corpus_path.read_bytes()[-5000:]), dtype=torch.long, device=device)
         print("\nComputing Perplexity (sampled)...")

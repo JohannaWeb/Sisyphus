@@ -1,0 +1,70 @@
+/home/johanna/projects/Bastion/projects/Sisyphus/src/train.py:559: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler() if device == "cuda" else None
+2026-04-05 19:13:21,052 INFO: Training on cuda
+2026-04-05 19:13:21,052 INFO: Mixed precision: True
+2026-04-05 19:13:21,052 INFO: Gradient quantization: False
+2026-04-05 19:13:21,052 INFO: Activation compression: False
+2026-04-05 19:13:21,052 INFO: Selective backprop: False
+2026-04-05 19:13:21,052 INFO: Sticky parameters: False
+2026-04-05 19:13:21,052 INFO: Gradient paging: False
+2026-04-05 19:13:21,052 INFO: Corpus bytes: 31279311
+2026-04-05 19:13:21,052 INFO: Corpus storage: memmap uint8 (29.8 MiB)
+2026-04-05 19:13:21,053 INFO: Train bytes: 28,151,379 | val bytes: 3,127,932
+2026-04-05 19:13:21,053 INFO: Parameters: 25,482,240
+2026-04-05 19:13:21,053 INFO: Estimated training memory: params 97.2 MiB, grads 97.2 MiB, optimizer 194.4 MiB, activations ~192.0 MiB, total ~580.8 MiB
+2026-04-05 19:13:21,053 INFO: System RAM: 15.5 GiB
+2026-04-05 19:13:21,053 INFO: CUDA VRAM: 6.6 GiB free / 7.6 GiB total
+2026-04-05 19:13:21,053 INFO: CUDA allocator: 98.2 MiB allocated / 110.0 MiB reserved
+2026-04-05 19:13:21,955 INFO: step     0 | train 5.4766 | val 5.4509 | lr 0.000000
+2026-04-05 19:13:34,531 INFO: step   300 | train 2.6154 | val 2.5225 | lr 0.000120
+2026-04-05 19:13:47,286 INFO: step   600 | train 2.4200 | val 2.2934 | lr 0.000200
+2026-04-05 19:13:59,806 INFO: step   900 | train 2.1009 | val 2.0527 | lr 0.000200
+2026-04-05 19:14:12,729 INFO: step  1200 | train 1.8058 | val 1.8813 | lr 0.000199
+2026-04-05 19:14:25,272 INFO: step  1500 | train 1.5280 | val 1.6856 | lr 0.000198
+2026-04-05 19:14:37,572 INFO: step  1800 | train 1.3962 | val 1.4515 | lr 0.000196
+2026-04-05 19:14:50,538 INFO: step  2100 | train 1.2842 | val 1.3446 | lr 0.000195
+2026-04-05 19:15:03,120 INFO: step  2400 | train 1.2512 | val 1.2765 | lr 0.000192
+2026-04-05 19:15:15,742 INFO: step  2700 | train 1.1445 | val 1.2467 | lr 0.000190
+2026-04-05 19:15:28,089 INFO: step  3000 | train 1.1083 | val 1.2018 | lr 0.000187
+2026-04-05 19:15:40,880 INFO: step  3300 | train 1.0741 | val 1.1672 | lr 0.000184
+2026-04-05 19:15:53,172 INFO: step  3600 | train 1.0538 | val 1.0893 | lr 0.000180
+2026-04-05 19:16:05,522 INFO: step  3900 | train 0.9970 | val 1.1455 | lr 0.000177
+2026-04-05 19:16:18,220 INFO: step  4200 | train 0.9899 | val 1.1091 | lr 0.000173
+2026-04-05 19:16:30,495 INFO: step  4500 | train 0.9542 | val 1.0911 | lr 0.000168
+2026-04-05 19:16:42,442 INFO: step  4800 | train 0.9614 | val 1.1442 | lr 0.000164
+2026-04-05 19:16:54,728 INFO: step  5100 | train 0.9269 | val 1.0429 | lr 0.000159
+2026-04-05 19:17:06,900 INFO: step  5400 | train 0.8966 | val 1.0670 | lr 0.000154
+2026-04-05 19:17:18,653 INFO: step  5700 | train 0.8753 | val 1.0533 | lr 0.000149
+2026-04-05 19:17:30,552 INFO: step  6000 | train 0.8957 | val 1.0037 | lr 0.000143
+2026-04-05 19:17:43,470 INFO: step  6300 | train 0.9059 | val 1.0257 | lr 0.000138
+2026-04-05 19:17:55,383 INFO: step  6600 | train 0.8440 | val 1.0347 | lr 0.000132
+2026-04-05 19:18:07,271 INFO: step  6900 | train 0.9038 | val 1.0118 | lr 0.000126
+2026-04-05 19:18:19,501 INFO: step  7200 | train 0.7912 | val 0.9723 | lr 0.000121
+2026-04-05 19:18:31,729 INFO: step  7500 | train 0.8370 | val 1.0130 | lr 0.000115
+2026-04-05 19:18:44,089 INFO: step  7800 | train 0.8375 | val 0.9703 | lr 0.000109
+2026-04-05 19:18:56,477 INFO: step  8100 | train 0.8245 | val 0.9629 | lr 0.000103
+2026-04-05 19:19:08,568 INFO: step  8400 | train 0.8293 | val 0.9475 | lr 0.000097
+2026-04-05 19:19:20,664 INFO: step  8700 | train 0.8116 | val 0.9481 | lr 0.000092
+2026-04-05 19:19:33,054 INFO: step  9000 | train 0.7682 | val 0.9063 | lr 0.000086
+2026-04-05 19:19:45,735 INFO: step  9300 | train 0.8076 | val 1.0207 | lr 0.000080
+2026-04-05 19:19:57,734 INFO: step  9600 | train 0.7569 | val 0.9536 | lr 0.000075
+2026-04-05 19:20:09,940 INFO: step  9900 | train 0.7665 | val 0.9395 | lr 0.000070
+2026-04-05 19:20:22,207 INFO: step 10200 | train 0.7607 | val 0.9552 | lr 0.000064
+2026-04-05 19:20:34,768 INFO: step 10500 | train 0.7844 | val 0.9481 | lr 0.000059
+2026-04-05 19:20:47,482 INFO: step 10800 | train 0.7440 | val 0.9567 | lr 0.000055
+2026-04-05 19:21:00,264 INFO: step 11100 | train 0.7487 | val 0.9000 | lr 0.000050
+2026-04-05 19:21:13,357 INFO: step 11400 | train 0.7278 | val 0.8993 | lr 0.000046
+2026-04-05 19:21:26,388 INFO: step 11700 | train 0.7385 | val 0.9523 | lr 0.000042
+2026-04-05 19:21:38,750 INFO: step 12000 | train 0.7329 | val 0.9844 | lr 0.000038
+2026-04-05 19:21:51,476 INFO: step 12300 | train 0.7109 | val 0.9419 | lr 0.000035
+2026-04-05 19:22:03,876 INFO: step 12600 | train 0.7589 | val 0.8868 | lr 0.000032
+2026-04-05 19:22:16,760 INFO: step 12900 | train 0.7322 | val 0.9242 | lr 0.000029
+2026-04-05 19:22:29,965 INFO: step 13200 | train 0.7458 | val 0.9158 | lr 0.000027
+2026-04-05 19:22:42,721 INFO: step 13500 | train 0.7179 | val 0.9141 | lr 0.000025
+2026-04-05 19:22:55,735 INFO: step 13800 | train 0.6778 | val 0.9155 | lr 0.000023
+2026-04-05 19:23:08,739 INFO: step 14100 | train 0.7268 | val 0.9164 | lr 0.000022
+2026-04-05 19:23:21,687 INFO: step 14400 | train 0.7459 | val 0.9574 | lr 0.000021
+2026-04-05 19:23:34,328 INFO: step 14700 | train 0.7187 | val 0.8944 | lr 0.000020
+2026-04-05 19:23:46,854 INFO: step 14999 | train 0.7515 | val 0.9390 | lr 0.000020
+2026-04-05 19:23:47,132 INFO: Best checkpoint written to /home/johanna/projects/Bastion/projects/Sisyphus/checkpoints/sisyphus.20m.pt
+2026-04-05 19:23:47,132 INFO: Last checkpoint written to /home/johanna/projects/Bastion/projects/Sisyphus/checkpoints/sisyphus.20m.last.pt

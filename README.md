@@ -33,7 +33,7 @@ This is not LoRA, not adapter tuning, and not base-model fine-tuning.
 - File-type and directory filtering to skip binary, generated, vendor, cache, and git content.
 - Per-source character caps to keep docs, code, and local text in a controlled mix.
 
-Experimental techniques implemented in code but disabled by default:
+Experimental techniques implemented in code and enabled by default in config:
 
 - Gradient quantization
 - Activation compression
@@ -41,6 +41,8 @@ Experimental techniques implemented in code but disabled by default:
 - Sticky parameters
 - Gradient paging
 - KV-cache and fractal-attention hooks in the model code
+
+These are advanced memory optimizations. Disable them by setting the flags to `false` in `config.yaml` if you experience issues.
 
 ## Quick Start
 
@@ -60,6 +62,12 @@ Train from scratch:
 python3 src/train.py --config config.yaml
 ```
 
+Resume training from a checkpoint:
+
+```bash
+python3 src/train.py --config config.yaml --resume checkpoints/sisyphus.last.pt
+```
+
 Generate text from a checkpoint:
 
 ```bash
@@ -71,6 +79,28 @@ Or use the wrapper:
 ```bash
 bash train_from_scratch.sh
 ```
+
+## Hardware Requirements
+
+- **Minimum RAM**: 8 GB system RAM
+- **GPU (recommended)**: NVIDIA CUDA-capable GPU with at least 4 GB VRAM, or Apple Silicon Mac with MPS support
+- **CPU fallback**: Training is very slow (~1 hour per 100 steps) without a GPU; not recommended for full 3000-step training
+
+## Checkpoint Selection
+
+Two checkpoint files are saved during training:
+
+- **`sisyphus.pt`** — Best checkpoint (lowest validation loss). Use this for generation and evaluation.
+- **`sisyphus.last.pt`** — Most recent checkpoint. Use this to resume training if interrupted.
+
+The best checkpoint path and metrics are logged to `sisyphus.metrics.json`.
+
+## Training Notes
+
+- Default training runs for 3000 steps with a batch size of 8
+- Each training step processes `batch_size * block_size = 8 * 256 = 2048` tokens
+- Evaluation runs every 200 steps
+- Training resumes correctly from a checkpoint with `--resume`, restoring optimizer state and the best loss seen so far
 
 ## Notes
 

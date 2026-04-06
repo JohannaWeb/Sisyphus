@@ -94,10 +94,15 @@ def resolve_root(path_value: str, project_root: Path) -> Path:
 
 def build_source_specs(data_cfg: dict[str, Any], project_root: Path) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
+    root_path_raw = data_cfg["root_path"]
+    if root_path_raw == "auto":
+        root_path = project_root
+    else:
+        root_path = resolve_root(root_path_raw, project_root)
     specs.append(
         {
             "label": data_cfg.get("root_label", "local-projects"),
-            "path": Path(data_cfg["root_path"]).resolve(),
+            "path": root_path,
             "max_total_characters": data_cfg.get("root_max_total_characters"),
             "max_files": data_cfg.get("root_max_files"),
         }
@@ -140,7 +145,6 @@ def build_corpus(config_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     excluded_paths = resolve_optional_paths(data_cfg.get("excluded_paths", []), project_root)
 
-    root_path = Path(data_cfg["root_path"]).resolve()
     source_specs = build_source_specs(data_cfg, project_root)
 
     output_dir_setting = Path(data_cfg["output_dir"])
@@ -228,7 +232,7 @@ def build_corpus(config_path: Path) -> None:
                 source_counts[source_label] = source_counts.get(source_label, 0) + 1
 
     metadata = {
-        "root_path": str(root_path),
+        "root_path": str(source_specs[0]["path"]) if source_specs else "",
         "source_roots": {
             spec["label"]: str(spec["path"])
             for spec in source_specs

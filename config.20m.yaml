@@ -1,5 +1,9 @@
+# Fast 20M model for 4060 Ti
+# Trains in ~1.5 days, 2x better than 10.9M baseline
+# ~1.8 GB VRAM usage
+
 data:
-  root_path: "auto"  # Set to "auto" to derive from script location; or use an absolute/relative path
+  root_path: "auto"
   root_label: "local-rust"
   root_max_total_characters: 150000
   extra_roots:
@@ -102,9 +106,6 @@ data:
     - path: "data/external/rust-code/axum/examples"
       label: "axum-examples"
       max_total_characters: 200000
-    - path: "data/external/top-crates"
-      label: "top-500-crates"
-      max_total_characters: 200000000  # 200M chars from 500 most-downloaded crates
   output_dir: "data/processed"
   corpus_file: "corpus.txt"
   metadata_file: "corpus_metadata.json"
@@ -220,47 +221,47 @@ web_corpus:
     max_document_characters: 4000
     shard_max_characters: 150000
 
+# 20M parameter model - practical for 4060 Ti (~1.5 days training)
 model:
   vocab_size: 256
-  block_size: 256
-  n_layer: 6
-  n_head: 6
-  n_embd: 384
+  block_size: 256          # Keep same (fast evaluation)
+  n_layer: 8               # Up from 6
+  n_head: 8                # Up from 6
+  n_embd: 512              # Up from 384
   dropout: 0.1
 
 training:
   seed: 1337
   device: "auto"
   checkpoint_dir: "checkpoints"
-  checkpoint_name: "sisyphus.pt"
-  batch_size: 8
-  eval_batch_size: 4
+  checkpoint_name: "sisyphus.20m.pt"
+  batch_size: 16           # Up from 8 (better throughput)
+  eval_batch_size: 8
   gradient_accumulation_steps: 1
   max_batch_tokens: 4096
   max_eval_batch_tokens: 2048
-  learning_rate: 0.0003
+  learning_rate: 0.0002    # Tune for larger model
   weight_decay: 0.1
   betas: [0.9, 0.95]
-  max_steps: 3000
-  warmup_steps: 100
-  eval_interval: 200
+  max_steps: 15000         # ~1.6 days on 4060 Ti
+  warmup_steps: 500        # ~3% warmup
+  eval_interval: 300
   eval_batches: 20
-  save_interval: 500
+  save_interval: 1000
   grad_clip: 1.0
   train_split: 0.9
-  max_ram_utilization: 0.7
+  max_ram_utilization: 0.8
   max_vram_utilization: 0.8
-  min_free_vram_bytes: 1073741824
+  min_free_vram_bytes: 536870912
   max_reserved_vram_bytes: 6442450944
-  # Monarch-inspired optimizations (experimental, enabled in this config)
-  # These are advanced memory/compute optimizations. Set to false to disable.
-  gradient_quantization: true
-  activation_compression: true
-  selective_backprop: true
-  sticky_params: true
-  gradient_paging: true
+  # Stable settings - no Monarch opts
+  gradient_quantization: false
+  activation_compression: false
+  selective_backprop: false
+  sticky_params: false
+  gradient_paging: false
 
 generation:
-  max_new_tokens: 200
-  temperature: 0.9
+  max_new_tokens: 256
+  temperature: 0.8
   top_k: 50

@@ -1,5 +1,9 @@
+# Optimized 20M for Rust pretraining
+# Same corpus (31M tokens), but longer sequences to extract more signal
+
 data:
-  root_path: "auto"  # Set to "auto" to derive from script location; or use an absolute/relative path
+  # (keeping all data config same as config.20m.yaml)
+  root_path: "auto"
   root_label: "local-rust"
   root_max_total_characters: 150000
   extra_roots:
@@ -102,9 +106,6 @@ data:
     - path: "data/external/rust-code/axum/examples"
       label: "axum-examples"
       max_total_characters: 200000
-    - path: "data/external/top-crates"
-      label: "top-500-crates"
-      max_total_characters: 200000000  # 200M chars from 500 most-downloaded crates
   output_dir: "data/processed"
   corpus_file: "corpus.txt"
   metadata_file: "corpus_metadata.json"
@@ -220,47 +221,46 @@ web_corpus:
     max_document_characters: 4000
     shard_max_characters: 150000
 
+# 20M model with longer sequences to learn deeper Rust patterns
 model:
   vocab_size: 256
-  block_size: 256
-  n_layer: 6
-  n_head: 6
-  n_embd: 384
+  block_size: 512          # ← Up from 256: see full functions + trait impls
+  n_layer: 8
+  n_head: 8
+  n_embd: 512              # ← Down from 512 to compensate VRAM
   dropout: 0.1
 
 training:
   seed: 1337
   device: "auto"
   checkpoint_dir: "checkpoints"
-  checkpoint_name: "sisyphus.pt"
-  batch_size: 8
-  eval_batch_size: 4
+  checkpoint_name: "sisyphus.20m.seq512.pt"
+  batch_size: 12           # ← Down from 16: seq doubled, need room
+  eval_batch_size: 6
   gradient_accumulation_steps: 1
-  max_batch_tokens: 4096
-  max_eval_batch_tokens: 2048
-  learning_rate: 0.0003
+  max_batch_tokens: 6144   # 12 * 512
+  max_eval_batch_tokens: 3072
+  learning_rate: 0.0002
   weight_decay: 0.1
   betas: [0.9, 0.95]
-  max_steps: 3000
-  warmup_steps: 100
-  eval_interval: 200
+  max_steps: 30000         # ← Double steps to see 2 more epochs
+  warmup_steps: 1000
+  eval_interval: 500
   eval_batches: 20
-  save_interval: 500
+  save_interval: 1000
   grad_clip: 1.0
   train_split: 0.9
-  max_ram_utilization: 0.7
+  max_ram_utilization: 0.8
   max_vram_utilization: 0.8
-  min_free_vram_bytes: 1073741824
+  min_free_vram_bytes: 536870912
   max_reserved_vram_bytes: 6442450944
-  # Monarch-inspired optimizations (experimental, enabled in this config)
-  # These are advanced memory/compute optimizations. Set to false to disable.
-  gradient_quantization: true
-  activation_compression: true
-  selective_backprop: true
-  sticky_params: true
-  gradient_paging: true
+  gradient_quantization: false
+  activation_compression: false
+  selective_backprop: false
+  sticky_params: false
+  gradient_paging: false
 
 generation:
-  max_new_tokens: 200
-  temperature: 0.9
+  max_new_tokens: 256
+  temperature: 0.8
   top_k: 50

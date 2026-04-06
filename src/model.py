@@ -116,67 +116,7 @@ class KVCache:
     def total_tokens(self) -> int:
         return self.hot_tokens + sum(m.shape[2] for m in self.k_cold_mag)
 
-class FractalAttention(nn.Module):
-    """Fractal attention - recursively divides attention into smaller blocks."""
-
-    def __init__(
-        self,
-        config: GPTConfig,
-        window_size: int = 64,
-        fractal_depth: int = 2,
-    ) -> None:
-        super().__init__()
-        self.n_head = config.n_head
-        self.head_dim = config.n_embd // config.n_head
-        self.window_size = window_size
-        self.fractal_depth = fractal_depth
-
-    def _fractal_attention_block(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        block_size: int,
-    ) -> torch.Tensor:
-        """Compute attention for a single block."""
-        if block_size <= 16 or k.shape[2] <= block_size:
-            return F.scaled_dot_product_attention(q, k, v, is_causal=True)
-
-        # Divide into sub-blocks
-        seq_len = k.shape[2]
-        n_blocks = seq_len // block_size
-
-        outputs = []
-        for i in range(n_blocks):
-            start = i * block_size
-            end = min(start + block_size, seq_len)
-            q_block = q[:, :, start:end, :]
-            k_block = k[:, :, :end, :]
-            v_block = v[:, :, :end, :]
-            out = F.scaled_dot_product_attention(q_block, k_block, v_block, is_causal=True)
-            outputs.append(out)
-
-        return torch.cat(outputs, dim=2)
-
-    def forward(
-        self,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute fractal attention across multiple levels."""
-        batch, heads, seq_len, dim = q.shape
-
-        if seq_len <= self.window_size:
-            return F.scaled_dot_product_attention(q, k, v, is_causal=True)
-
-        # Multi-level fractal attention
-        result = q
-        for depth in range(self.fractal_depth):
-            block_size = self.window_size // (2 ** depth)
-            result = self._fractal_attention_block(result, k, v, block_size)
-
-        return result
+# Removed: FractalAttention (dead code, never called in forward pass)
 
 
 class CausalSelfAttention(nn.Module):
@@ -191,20 +131,8 @@ class CausalSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # Monarch optimizations
+        # KV cache will be initialized on first use with correct device
         self.kv_cache: Optional[KVCache] = None
-        if config.use_kv_cache:
-            self.kv_cache = KVCache(
-                config.block_size, self.n_head, self.head_dim, "cuda"
-            )
-
-        self.fractal_attn = None
-        if config.fractal_depth > 0:
-            self.fractal_attn = FractalAttention(
-                config,
-                window_size=config.window_size,
-                fractal_depth=config.fractal_depth,
-            )
 
     def forward(
         self,
@@ -280,6 +208,10 @@ class ByteGPT(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.token_embedding.weight = self.lm_head.weight
+
+        # Cache position indices to avoid reallocation every forward
+        self.register_buffer('_position_ids', torch.arange(config.block_size))
+
         self.apply(self._init_weights)
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -303,14 +235,12 @@ class ByteGPT(nn.Module):
             # So kv_cache.total_tokens is the count of tokens ALREADY in cache.
             # The current tokens will be appended later.
             start_pos = self.blocks[0].attn.kv_cache.total_tokens if self.blocks[0].attn.kv_cache else 0
-            positions = torch.arange(start_pos, start_pos + steps, device=idx.device)
+            positions = (self._position_ids[start_pos:start_pos + steps]).clamp(0, self.config.block_size - 1)
         else:
             if steps > self.config.block_size:
                 raise ValueError("sequence length exceeds block size")
-            positions = torch.arange(0, steps, device=idx.device)
-
-        # Clamp positions to avoid embedding overflow if sequence is long
-        positions = positions.clamp(0, self.config.block_size - 1)
+            # Use cached position IDs instead of allocating new tensor
+            positions = self._position_ids[:steps]
 
         x = self.token_embedding(idx) + self.position_embedding(positions)
         x = self.dropout(x)

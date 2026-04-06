@@ -7,6 +7,7 @@ import argparse
 import math
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 
@@ -30,7 +31,6 @@ def compute_perplexity(
     model: ByteGPT,
     data: torch.Tensor,
     block_size: int,
-    batch_size: int,
     device: str,
 ) -> float:
     """Compute perplexity on the given data."""
@@ -39,11 +39,11 @@ def compute_perplexity(
     total_tokens = 0
 
     with torch.no_grad():
-        for i in range(0, len(data) - block_size - 1, batch_size):
-            xb = data[i : i + block_size].to(device)
-            yb = data[i + 1 : i + block_size + 1].to(device)
+        for i in range(0, len(data) - block_size - 1, block_size):
+            xb = data[i : i + block_size].unsqueeze(0).to(device)
+            yb = data[i + 1 : i + block_size + 1].unsqueeze(0).to(device)
 
-            logits, loss = model(xb, yb)
+            _, loss = model(xb, yb)
             if loss is not None:
                 total_loss += loss.item() * block_size
                 total_tokens += block_size
@@ -81,8 +81,8 @@ def main() -> None:
     if not corpus_path.exists():
         raise FileNotFoundError(f"Corpus not found at {corpus_path}")
 
-    corpus_bytes = corpus_path.read_bytes()
-    data = torch.tensor(list(corpus_bytes), dtype=torch.long)
+    corpus_array = np.memmap(corpus_path, dtype=np.uint8, mode="c")
+    data = torch.from_numpy(corpus_array).long()
 
     split_idx = int(len(data) * train_cfg["train_split"])
     if args.split == "train":
@@ -96,7 +96,7 @@ def main() -> None:
     print(f"Data size: {len(data)} tokens")
     print(f"Block size: {block_size}")
 
-    ppl = compute_perplexity(model, data, block_size, args.batch_size, device)
+    ppl = compute_perplexity(model, data, block_size, device)
     print(f"\nPerplexity: {ppl:.4f}")
 
 

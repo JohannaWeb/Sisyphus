@@ -17,14 +17,22 @@ Build corpus inputs:
 
 ```bash
 python3 src/fetch_rust_web_corpus.py --config config.yaml
+python3 src/fetch_rust_code_corpus.py --config config.yaml
 python3 src/fetch_fineweb_edu.py --config config.yaml   # optional, requires network
 python3 src/build_corpus.py --config config.yaml
 ```
 
-Train:
+Alternatively, use the wrapper script (skips FineWeb):
+
+```bash
+bash train_from_scratch.sh
+```
+
+Train (from checkpoint or from scratch):
 
 ```bash
 python3 src/train.py --config config.yaml
+python3 src/train.py --config config.yaml --resume checkpoints/sisyphus.last.pt  # Resume training
 ```
 
 Generate:
@@ -48,7 +56,7 @@ python3 src/generate.py --checkpoint checkpoints/sisyphus.pt --prompt "fn main"
 - FineWeb fetch requires outbound access to Hugging Face on first resolution/fetch.
 - If the config uses an invalid split, `datasets` raises `ValueError: Bad split ... Available splits: ['train']`.
 - In restricted or offline environments, `python3 src/fetch_fineweb_edu.py --config config.yaml` can appear to hang and then fail during dataset resolution.
-- A reproduced failure in this repo looked like:
+- A reproduced failure in this repo looked like:ANAL
 
 ```text
 [Errno -2] Name or service not known

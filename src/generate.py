@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate text from a trained ConfidentlyWrog checkpoint."""
+"""Generate text from a trained Sisyphus checkpoint."""
 
 from __future__ import annotations
 
@@ -24,7 +24,11 @@ def load_checkpoint(checkpoint_path: Path) -> tuple[dict[str, Any], ByteGPT]:
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     model_cfg = checkpoint["config"]["model"]
     model = ByteGPT(GPTConfig(**model_cfg))
-    model.load_state_dict(checkpoint["model_state_dict"])
+
+    # Load state dict, ignoring position_ids buffer if it wasn't in checkpoint
+    state_dict = checkpoint["model_state_dict"]
+    model.load_state_dict(state_dict, strict=False)
+
     model.eval()
     return checkpoint, model
 
@@ -43,7 +47,7 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint).resolve()
     checkpoint, model = load_checkpoint(checkpoint_path)
     config = checkpoint["config"]
-    generation_cfg = config["generation"]
+    generation_cfg = config.get("generation", {"max_new_tokens": 200, "temperature": 0.9, "top_k": 50})
     device = resolve_device()
     model = model.to(device)
 
@@ -52,11 +56,14 @@ def main() -> None:
         prompt_bytes = b"<FILE path=\"seed\">\n"
 
     idx = torch.tensor([list(prompt_bytes)], dtype=torch.long, device=device)
+    max_new_tokens = args.max_new_tokens if args.max_new_tokens is not None else generation_cfg["max_new_tokens"]
+    temperature = args.temperature if args.temperature is not None else generation_cfg["temperature"]
+    top_k = args.top_k if args.top_k is not None else generation_cfg["top_k"]
     out = model.generate(
         idx,
-        max_new_tokens=args.max_new_tokens or generation_cfg["max_new_tokens"],
-        temperature=args.temperature or generation_cfg["temperature"],
-        top_k=args.top_k or generation_cfg["top_k"],
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        top_k=top_k,
         use_cache=args.use_cache,
     )
     text = bytes(out[0].tolist()).decode("utf-8", errors="ignore")
