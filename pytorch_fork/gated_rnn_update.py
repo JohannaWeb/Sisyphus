@@ -13,19 +13,28 @@ def gated_rnn_update(
     v: Tensor,  # (B, H, T, D) candidate state * value weighting
     h_init: Tensor,  # (B, H, D) initial hidden state
 ) -> tuple[Tensor, Tensor]:  # (h_out, h_final)
-    """
-    Simplified gated recurrent update via sequential Triton kernel.
+    r"""
+    Simplified gated recurrent update (NOT a standard GRU) for HybridAttention.
 
-    This is NOT a standard GRU. Instead, it's a gated-RNN designed for HybridAttention:
-    - k, v: (B, H, T, D) come from attention module (already are projections)
-    - Gates and candidates computed from k directly (no separate W matrices)
-    - Output is blended between local attention and this RNN pathway
+    ⚠️  IMPORTANT: This is NOT a true GRU. It is a simplified gated-RNN cell
+    designed specifically for the HybridAttention architecture where:
+    - k, v are already projections from the attention module
+    - Gates and candidates are computed from these projections only
+    - No separate learnable weight matrices (W_r, U_r, W_z, U_z, etc.)
 
-    The recurrence is:
-        r_t = sigmoid(k_t + h_{t-1})         # reset gate (simplified)
-        z_t = sigmoid(k_t + h_{t-1})         # update gate (simplified)
-        n_t = tanh(r_t * h_{t-1} + k_t)      # candidate (simplified)
-        h_t = (1-z_t) * h_{t-1} + z_t * (n_t * v_t)  # output
+    The actual recurrence is:
+        r_t = sigmoid(k_t + h_{t-1})         # reset gate (simplified: no weights)
+        z_t = sigmoid(k_t + h_{t-1})         # update gate (simplified: no weights)
+        n_t = tanh(r_t * h_{t-1} + k_t)      # candidate state
+        h_t = (1-z_t) * h_{t-1} + z_t * (n_t * v_t)
+
+    This differs from a standard GRU in that:
+    - No separate W and U weight matrices for gates
+    - Gates computed from pre-projected inputs (k, v) only
+    - Candidate state mixing involves element-wise v_t multiplication
+    - Designed for integration with local-window attention, not standalone RNN use
+
+    For a true GRU implementation, use torch.nn.GRUCell or torch.nn.GRU.
 
     Args:
         k: (B, H, T, D) gating signal (from K projection in attention)
