@@ -12,9 +12,11 @@ def gated_rnn_bwd_kernel(
     stride_k_b, stride_k_h, stride_k_t, stride_k_d,
     stride_v_b, stride_v_h, stride_v_t, stride_v_d,
     stride_h_b, stride_h_h, stride_h_d,
+    stride_ho_b, stride_ho_h, stride_ho_t, stride_ho_d,
     stride_dh_b, stride_dh_h, stride_dh_t, stride_dh_d,
     stride_dk_b, stride_dk_h, stride_dk_t, stride_dk_d,
     stride_dv_b, stride_dv_h, stride_dv_t, stride_dv_d,
+    stride_dhi_b, stride_dhi_h, stride_dhi_d,
     T: tl.constexpr,
     D: tl.constexpr,
     H: tl.constexpr,
@@ -50,10 +52,10 @@ def gated_rnn_bwd_kernel(
         # Load h_t, h_{t-1}
         h_t_ptrs = (
             H_out_ptr
-            + pid_b * stride_h_b
-            + pid_h * stride_h_h
-            + t * stride_dh_t
-            + tl.arange(0, BLOCK_D) * stride_dh_d
+            + pid_b * stride_ho_b
+            + pid_h * stride_ho_h
+            + t * stride_ho_t
+            + tl.arange(0, BLOCK_D) * stride_ho_d
         )
         h_t = tl.load(h_t_ptrs, mask=tl.arange(0, BLOCK_D) < D, other=0.0)
 
@@ -70,10 +72,10 @@ def gated_rnn_bwd_kernel(
             # Load h_prev from H_out at t-1
             h_prev_ptrs = (
                 H_out_ptr
-                + pid_b * stride_h_b
-                + pid_h * stride_h_h
-                + (t - 1) * stride_dh_t
-                + tl.arange(0, BLOCK_D) * stride_dh_d
+                + pid_b * stride_ho_b
+                + pid_h * stride_ho_h
+                + (t - 1) * stride_ho_t
+                + tl.arange(0, BLOCK_D) * stride_ho_d
             )
         h_prev = tl.load(h_prev_ptrs, mask=tl.arange(0, BLOCK_D) < D, other=0.0)
 
@@ -99,10 +101,10 @@ def gated_rnn_bwd_kernel(
         # Load dH_out_t (gradient from downstream)
         dh_out_ptrs = (
             dH_out_ptr
-            + pid_b * stride_dho_b
-            + pid_h * stride_dho_h
-            + t * stride_dho_t
-            + tl.arange(0, BLOCK_D) * stride_dho_d
+            + pid_b * stride_dh_b
+            + pid_h * stride_dh_h
+            + t * stride_dh_t
+            + tl.arange(0, BLOCK_D) * stride_dh_d
         )
         dh_out_t = tl.load(dh_out_ptrs, mask=tl.arange(0, BLOCK_D) < D, other=0.0)
 
@@ -180,8 +182,8 @@ def gated_rnn_bwd_kernel(
     # Store dH_init (gradient w.r.t. initial state)
     dh_init_ptrs = (
         dH_init_ptr
-        + pid_b * stride_dh_b
-        + pid_h * stride_dh_h
-        + tl.arange(0, BLOCK_D) * stride_dh_d
+        + pid_b * stride_dhi_b
+        + pid_h * stride_dhi_h
+        + tl.arange(0, BLOCK_D) * stride_dhi_d
     )
     tl.store(dh_init_ptrs, dh, mask=tl.arange(0, BLOCK_D) < D)

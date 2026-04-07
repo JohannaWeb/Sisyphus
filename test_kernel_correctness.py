@@ -3,7 +3,17 @@
 
 import torch
 import torch.nn.functional as F
+import pytorch_fork  # noqa: F401
 from pytorch_fork.local_window_attn import local_window_attention
+
+
+def require_cuda():
+    """Return False after printing a skip message when CUDA is unavailable."""
+    if torch.cuda.is_available():
+        return True
+
+    print("  ⊘ CUDA not available, skipping")
+    return False
 
 
 def scaled_dot_product_attention_windowed(q, k, v, window_size):
@@ -32,9 +42,26 @@ def scaled_dot_product_attention_windowed(q, k, v, window_size):
     return out
 
 
+def reference_gated_rnn(k, v, h_init):
+    """Reference implementation of the custom gated RNN update."""
+    states = []
+    h_prev = h_init
+    for t in range(k.shape[2]):
+        k_t = k[:, :, t, :]
+        v_t = v[:, :, t, :]
+        r_t = torch.sigmoid(k_t + h_prev)
+        z_t = torch.sigmoid(k_t + h_prev)
+        n_t = torch.tanh(r_t * h_prev + k_t)
+        h_prev = (1.0 - z_t) * h_prev + z_t * (n_t * v_t)
+        states.append(h_prev)
+    return torch.stack(states, dim=2), h_prev
+
+
 def test_local_window_attention_forward():
     """Test forward pass correctness."""
     print("Testing local_window_attention forward...")
+    if not require_cuda():
+        return True
 
     B, H, T, D = 2, 8, 128, 64
     W = 32
@@ -68,6 +95,8 @@ def test_local_window_attention_forward():
 def test_local_window_attention_backward():
     """Test backward pass (gradients) correctness."""
     print("Testing local_window_attention backward...")
+    if not require_cuda():
+        return True
 
     B, H, T, D = 2, 8, 128, 64
     W = 32
@@ -121,6 +150,8 @@ def test_local_window_attention_backward():
 def test_gated_rnn_update_forward():
     """Test GRU forward pass correctness."""
     print("Testing gated_rnn_update forward...")
+    if not require_cuda():
+        return True
 
     B, H, T, D = 2, 8, 128, 64
 
@@ -129,20 +160,109 @@ def test_gated_rnn_update_forward():
     v = torch.randn(B, H, T, D, dtype=torch.float32, device='cuda')
     h_init = torch.randn(B, H, D, dtype=torch.float32, device='cuda')
 
-    # Triton kernel
     try:
         h_out_triton, h_final_triton = torch.ops.sisyphus.gated_rnn_update(k, v, h_init)
-        print(f"  Output shape: {h_out_triton.shape}")
-        print("  ✓ GRU forward executed (reference comparison requires separate RNN implementation)")
-        return True
+        h_out_ref, h_final_ref = reference_gated_rnn(k, v, h_init)
     except Exception as e:
         print(f"  ✗ GRU forward failed: {e}")
         return False
+
+    out_diff = (h_out_triton - h_out_ref).abs().max().item()
+    final_diff = (h_final_triton - h_final_ref).abs().max().item()
+    print(f"  Max abs diff: h_out={out_diff:.6f}, h_final={final_diff:.6f}")
+
+    if max(out_diff, final_diff) < 1e-4:
+        print("  ✓ GRU forward matches reference")
+        return True
+
+    print("  ✗ GRU forward does not match reference")
+    return False
+
+
+def test_gated_rnn_update_backward():
+    """Test GRU backward gradients against a PyTorch reference."""
+    print("Testing gated_rnn_update backward...")
+    if not require_cuda():
+        return True
+
+    B, H, T, D = 2, 4, 32, 32
+
+    torch.manual_seed(123)
+    k_base = torch.randn(B, H, T, D, dtype=torch.float32, device="cuda")
+    v_base = torch.randn(B, H, T, D, dtype=torch.float32, device="cuda")
+    h_init_base = torch.randn(B, H, D, dtype=torch.float32, device="cuda")
+
+    k_ref = k_base.clone().requires_grad_(True)
+    v_ref = v_base.clone().requires_grad_(True)
+    h_init_ref = h_init_base.clone().requires_grad_(True)
+    h_out_ref, h_final_ref = reference_gated_rnn(k_ref, v_ref, h_init_ref)
+    loss_ref = h_out_ref.square().mean() + h_final_ref.square().mean()
+    loss_ref.backward()
+
+    k_triton = k_base.clone().requires_grad_(True)
+    v_triton = v_base.clone().requires_grad_(True)
+    h_init_triton = h_init_base.clone().requires_grad_(True)
+    h_out_triton, h_final_triton = torch.ops.sisyphus.gated_rnn_update(
+        k_triton, v_triton, h_init_triton
+    )
+    loss_triton = h_out_triton.square().mean() + h_final_triton.square().mean()
+    loss_triton.backward()
+
+    grad_errors = {
+        "k": (k_triton.grad - k_ref.grad).abs().max().item(),
+        "v": (v_triton.grad - v_ref.grad).abs().max().item(),
+        "h_init": (h_init_triton.grad - h_init_ref.grad).abs().max().item(),
+    }
+    print(
+        "  Max abs grad diff: "
+        f"k={grad_errors['k']:.6f}, v={grad_errors['v']:.6f}, h_init={grad_errors['h_init']:.6f}"
+    )
+
+    if max(grad_errors.values()) < 1e-4:
+        print("  ✓ GRU backward matches reference")
+        return True
+
+    print("  ✗ GRU backward does not match reference")
+    return False
+
+
+def test_gated_rnn_update_edge_cases():
+    """Test short-sequence and zero-state edge cases."""
+    print("Testing gated_rnn_update edge cases...")
+    if not require_cuda():
+        return True
+
+    checks = []
+
+    torch.manual_seed(7)
+    for T in (1, 2):
+        B, H, D = 2, 3, 16
+        k = torch.randn(B, H, T, D, dtype=torch.float32, device="cuda")
+        v = torch.randn(B, H, T, D, dtype=torch.float32, device="cuda")
+        h_init = torch.zeros(B, H, D, dtype=torch.float32, device="cuda")
+
+        h_out_triton, h_final_triton = torch.ops.sisyphus.gated_rnn_update(k, v, h_init)
+        h_out_ref, h_final_ref = reference_gated_rnn(k, v, h_init)
+        diff = max(
+            (h_out_triton - h_out_ref).abs().max().item(),
+            (h_final_triton - h_final_ref).abs().max().item(),
+        )
+        print(f"  T={T} max abs diff: {diff:.6f}")
+        checks.append(diff < 1e-4)
+
+    if all(checks):
+        print("  ✓ GRU edge cases match reference")
+        return True
+
+    print("  ✗ GRU edge case mismatch")
+    return False
 
 
 def test_input_validation():
     """Test that invalid inputs are caught."""
     print("Testing input validation...")
+    if not require_cuda():
+        return True
 
     B, H, T, D = 2, 8, 128, 64
     W = 32
@@ -212,6 +332,8 @@ if __name__ == '__main__':
         'local_window_attention_fwd': test_local_window_attention_forward(),
         'local_window_attention_bwd': test_local_window_attention_backward(),
         'gated_rnn_update_fwd': test_gated_rnn_update_forward(),
+        'gated_rnn_update_bwd': test_gated_rnn_update_backward(),
+        'gated_rnn_update_edges': test_gated_rnn_update_edge_cases(),
         'input_validation': test_input_validation(),
     }
 

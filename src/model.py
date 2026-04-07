@@ -216,7 +216,7 @@ class HybridAttention(nn.Module):
             self.local_buf_pos += 1
         else:
             # Training or initial forward: use Triton kernel if available, else Python fallback
-            if HAS_TRITON_OPS and T > 1:
+            if HAS_TRITON_OPS and T > 1 and q.is_cuda and k.is_cuda and v.is_cuda:
                 # Triton kernel (faster, but only for full sequences T > 1)
                 local_out, lse = torch.ops.sisyphus.local_window_attention(q, k, v, self.window_size)
             else:

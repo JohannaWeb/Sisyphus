@@ -137,9 +137,11 @@ def _gru_backward(ctx, grad_h_out, grad_h_final):
     stride_k_b, stride_k_h, stride_k_t, stride_k_d = k.stride()
     stride_v_b, stride_v_h, stride_v_t, stride_v_d = v.stride()
     stride_h_b, stride_h_h, stride_h_d = h_init.stride()
+    stride_ho_b, stride_ho_h, stride_ho_t, stride_ho_d = h_out.stride()
     stride_dh_b, stride_dh_h, stride_dh_t, stride_dh_d = grad_h_total.stride()
     stride_dk_b, stride_dk_h, stride_dk_t, stride_dk_d = dk.stride()
     stride_dv_b, stride_dv_h, stride_dv_t, stride_dv_d = dv.stride()
+    stride_dhi_b, stride_dhi_h, stride_dhi_d = dh_init.stride()
 
     # Launch backward kernel
     gated_rnn_bwd_kernel[grid](
@@ -148,9 +150,11 @@ def _gru_backward(ctx, grad_h_out, grad_h_final):
         stride_k_b, stride_k_h, stride_k_t, stride_k_d,
         stride_v_b, stride_v_h, stride_v_t, stride_v_d,
         stride_h_b, stride_h_h, stride_h_d,
+        stride_ho_b, stride_ho_h, stride_ho_t, stride_ho_d,
         stride_dh_b, stride_dh_h, stride_dh_t, stride_dh_d,
         stride_dk_b, stride_dk_h, stride_dk_t, stride_dk_d,
         stride_dv_b, stride_dv_h, stride_dv_t, stride_dv_d,
+        stride_dhi_b, stride_dhi_h, stride_dhi_d,
         T=T, D=D, H=H, BLOCK_D=min(D, 64),
     )
 
